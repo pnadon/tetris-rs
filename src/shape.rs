@@ -1,124 +1,75 @@
-use ncurses::{
-    COLOR_BLUE, COLOR_CYAN, COLOR_GREEN, COLOR_MAGENTA, COLOR_RED, COLOR_WHITE, COLOR_YELLOW,
-};
 use rand::prelude::random;
-pub static COLOR: [i16; 7] = [
-    COLOR_YELLOW,
-    COLOR_CYAN,
-    COLOR_BLUE,
-    COLOR_WHITE,
-    COLOR_RED,
-    COLOR_GREEN,
-    COLOR_MAGENTA,
-];
-pub static SHAPE_COORDS: [[[bool; 5]; 5]; 7] = [
-    [
-        // O
-        [false, false, false, false, false],
-        [false, true, true, false, false],
-        [false, true, true, false, false],
-        [false, false, false, false, false],
-        [false, false, false, false, false],
-    ],
-    [
-        // I
-        [false, false, false, false, false],
-        [true, true, true, true, false],
-        [false, false, false, false, false],
-        [false, false, false, false, false],
-        [false, false, false, false, false],
-    ],
-    [
-        // L
-        [false, true, true, false, false],
-        [false, true, false, false, false],
-        [false, true, false, false, false],
-        [false, false, false, false, false],
-        [false, false, false, false, false],
-    ],
-    [
-        // J
-        [false, true, true, false, false],
-        [false, false, true, false, false],
-        [false, false, true, false, false],
-        [false, false, false, false, false],
-        [false, false, false, false, false],
-    ],
-    [
-        // zag
-        [false, false, true, false, false],
-        [false, true, true, false, false],
-        [false, true, false, false, false],
-        [false, false, false, false, false],
-        [false, false, false, false, false],
-    ],
-    [
-        // zig
-        [false, true, false, false, false],
-        [false, true, true, false, false],
-        [false, false, true, false, false],
-        [false, false, false, false, false],
-        [false, false, false, false, false],
-    ],
-    [
-        // T
-        [false, false, false, false, false],
-        [false, false, true, false, false],
-        [false, true, true, true, false],
-        [false, false, false, false, false],
-        [false, false, false, false, false],
-    ],
-];
 
-pub const DEFAULT_ROW: i32 = 2;
-pub const DEFAULT_COL: i32 = 0;
-
-pub static CHAR_KEYS: [[usize; 2]; 7] =
-    [[1, 2], [3, 4], [5, 6], [7, 8], [9, 10], [11, 12], [13, 14]];
+use crate::primitives::{Coord, Symbol, ShapeType, num_to_shape, shape_coords, shape_to_num, Display, get_tl};
 
 pub struct Shape {
-    coords: [[bool; 5]; 5],
-    chars: [usize; 2],
-    color: i16,
+    clockwise_rotations: u8,
+    shape_type: ShapeType,
+    rel_coords: Coord,
+    display: Display,
 }
 
 impl Shape {
     pub fn new() -> Self {
-        let choice = random::<usize>() % SHAPE_COORDS.len();
+        let choice = random::<usize>() % 7;
+        let shape_type = num_to_shape(choice as i16);
         Self {
-            coords: SHAPE_COORDS[choice],
-            chars: CHAR_KEYS[choice],
-            color: COLOR[choice],
+            clockwise_rotations: 0,
+            shape_type,
+            rel_coords: Coord::new(0, 0),
+            display: Display::Next,
         }
     }
 
-    pub fn coords(&self) -> &[[bool; 5]; 5] {
-        &self.coords
+    pub fn coords(&self) -> std::slice::Iter<'_, Coord> {
+        let mut coords = shape_coords(self.shape_type);
+        for i in 0..4 {
+            for rotation in 0..self.clockwise_rotations {
+                coords[i] = coords[i].rotate(
+                    match self.shape_type {
+                        ShapeType::I => 4,
+                        _ => 3,
+                    }
+                );
+            }
+            coords[i] += self.rel_coords + get_tl(self.display);
+        }
+        coords.iter()
     }
 
-    pub fn set_coords(&mut self, coords: [[bool; 5]; 5]) {
-        self.coords = coords;
+    pub fn rotate_right(&mut self) {
+        if self.shape_type == ShapeType::O {
+            return;
+        }
+        self.clockwise_rotations = (self.clockwise_rotations + 1) % 4;
     }
 
-    pub fn height(&self) -> usize {
-        self.coords().len()
-    }
-
-    pub fn width(&self) -> usize {
-        self.coords()[0].len()
+    pub fn rotate_left(&mut self) {
+        if self.shape_type == ShapeType::O {
+            return;
+        }
+        self.clockwise_rotations = (self.clockwise_rotations + 3) % 4;
     }
 
     pub fn shape_height(&self) -> usize {
-        (0..self.height())
-            .map(|row| (0..self.width()).any(|col| self.coords()[row][col]))
-            .fold(0, |acc, row| acc + if row { 1 } else { 0 })
+        self.coords().map(|coord| coord.row).max().unwrap()
+        - self.coords().map(|coord| coord.row).min().unwrap() + 1
     }
 
-    pub fn color(&self) -> i16 {
-        self.color
+    pub fn shape_width(&self) -> usize {
+        self.coords().map(|coord| coord.col).max().unwrap()
+        - self.coords().map(|coord| coord.col).min().unwrap() + 1
     }
 
-    pub fn chars(&self) -> [usize; 2] {
-        self.chars
+    pub fn color_num(&self) -> i16{
+        shape_to_num(self.shape_type)
+    }
+
+    pub fn shape_type(&self) -> ShapeType {
+        self.shape_type
+    }
+
+    pub fn symbol(&self) -> Symbol {
+        Symbol::Block(self.color_num())
     }
 }

@@ -57,8 +57,8 @@ pub fn test() {
 
     wmove(stdscr(), 3, 34);
     let color_num = 2;
-    init_pair(color_num + 3, COLOR_BLUE, -1);
-    attrset(COLOR_PAIR(color_num + 3));
+    init_pair(1, COLOR_RED, -1);
+    attrset(COLOR_PAIR( 1));
     let print_char = "█";
     addstr(print_char);
     wmove(stdscr(), 0, 0);

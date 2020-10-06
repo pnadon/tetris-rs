@@ -1,54 +1,13 @@
 use crate::shape::Shape;
-use crate::shape::COLOR;
-use crate::coord::Coord;
-use ncurses::{addstr, attrset, init_pair, mvaddstr, refresh, stdscr, wmove, COLOR_PAIR};
+use ncurses::{addstr, attrset, mvaddstr, refresh, stdscr, wmove, COLOR_PAIR};
 use std::{thread, time};
 
-pub static SCREEN_STR: &str = "  ┏━━k-vernooy/tetris━━┓              
-  ┃                    ┃              
-  ┃                    ┃   ┏━━next━━━┓
-  ┃                    ┃   ┃         ┃
-  ┃                    ┃   ┃         ┃
-  ┃                    ┃   ┃         ┃
-  ┃                    ┃   ┗━━━━━━━━━┛
-  ┃                    ┃              
-  ┃                    ┃   ┏━━score━━┓
-  ┃                    ┃   ┃         ┃
-  ┃                    ┃   ┃  0      ┃
-  ┃                    ┃   ┃         ┃
-  ┃                    ┃   ┗━━━━━━━━━┛
-  ┃                    ┃              
-  ┃                    ┃   ┏━━lines━━┓
-  ┃                    ┃   ┃         ┃
-  ┃                    ┃   ┃  0      ┃
-  ┃                    ┃   ┃         ┃
-  ┃                    ┃   ┗━━━━━━━━━┛
-  ┗━━━━━━━━━━━━━━━━━━━━┛              
-                                      ";
-
-const DEFAULT_WIN_ROW: usize = 3;
-const DEFAULT_WIN_COL: usize = 34;
-const NEXT_DISP_TL: Coord = Coord { row: 3, col: 28};
-const SCORE_DISP_TL: Coord = Coord { row: 9, col: 28};
-const LINES_DISP_TL: Coord = Coord { row: 15, col: 28};
-const STAT_DIMS: Coord = Coord { row: 3, col: 9};
-const ARENA_TL: Coord = Coord { row: 1, col: 3};
-const ARENA_DIMS: Coord = Coord { row: 18, col: 20};
-
-enum Symbols {
-    TLCorner,
-    TRCorner,
-    BLCorner,
-    BRCorner,
-    VBar,
-    HBar,
-    Space,
-    Block(usize),
-    Text(char),
-}
+use crate::primitives::{
+    Symbol, SCREEN_STR, to_symbol, Coord, from_symbol, arena_row_iter, NEXT_DISP_TL, ARENA_TL, ARENA_DIMS, STAT_DIMS, SCORE_DISP_TL, LINES_DISP_TL, get_tl, get_dims, Display,
+};
 
 pub struct Screen {
-    contents: Vec<Vec<String>>,
+    contents: Vec<Vec<Symbol>>,
 }
 
 impl Screen {
@@ -56,8 +15,8 @@ impl Screen {
         Self {
             contents: SCREEN_STR
                 .lines()
-                .map(|line| line.chars().map(|s| (s as char).to_string()).collect::<Vec<String>>())
-                .collect::<Vec<Vec<String>>>(),
+                .map(|line| line.chars().map(to_symbol).collect::<Vec<Symbol>>())
+                .collect::<Vec<Vec<Symbol>>>(),
         }
     }
 
@@ -95,20 +54,24 @@ impl Screen {
         self.contents.len()
     }
 
-    pub fn get_cell(&self, row: usize, col: usize) -> &str {
-        &self.contents[row][col]
+    pub fn get_cell(&self, row: usize, col: usize) -> Symbol {
+        self.contents[row][col]
     }
 
-    pub fn set_cell(&mut self, row: usize, col: usize, val: &str) {
-        self.contents[row][col] = val.to_string();
+    pub fn set_cell(&mut self, coord: Coord, disp: Display, val: Symbol) {
+        let tl = get_tl(disp);
+        self.contents[coord.row + tl.row][coord.col + tl.col] = val;
+        if let Symbol::Block(_) = val {
+            self.contents[coord.row + tl.row][coord.col + tl.col + 1] = val;
+        }
     }
 
     pub fn is_space(&self, row: usize, col: usize) -> bool {
-        self.contents[row][col] == " "
+        self.contents[row][col] == Symbol::Space
     }
 
     pub fn set_space(&mut self, row: usize, col: usize) {
-        self.contents[row][col] = " ".to_string();
+        self.contents[row][col] = Symbol::Space;
     }
 
     pub fn top(&mut self) {
@@ -122,26 +85,20 @@ impl Screen {
                 let cur = self.get_cell(row, col);
                 // "magic numbers", checks if inside of game window, should be replaced
                 if Self::in_arena(row, col) || Self::in_next_disp(row, col) {
-                    match cur.parse::<usize>() {
-                        Ok(cur_num) => {
-                            let (color_num, print_char) = match cur_num % 2 == 0 {
-                                true => (cur_num / 2 - 1, "█"),
-                                false => (cur_num / 2, "█"),
-                            };
-                            init_pair(color_num as i16 + 3, COLOR[color_num] as i16, -1);
-                            attrset(COLOR_PAIR(color_num as i16 + 3));
+                    match cur {
+                        Symbol::Block(num) => {
+                            attrset(COLOR_PAIR(num));
 
-                            addstr(print_char);
-
-                            init_pair(1, COLOR[4], -1);
+                            addstr(&from_symbol(cur).to_string());
                             attrset(COLOR_PAIR(1));
-                        }
-                        Err(_) => {
-                            addstr(" ");
-                        }
+                        },
+                        Symbol::Space => {
+                            addstr(&from_symbol(cur).to_string());
+                        },
+                        _ => panic!("Invalid symbol in arena"),
                     }
                 } else {
-                    addstr(cur);
+                    addstr(&from_symbol(cur).to_string());
                 }
             }
             addstr("\n");
@@ -149,50 +106,41 @@ impl Screen {
     }
 
     pub fn add_next(&mut self, shape: &Shape) {
-        for i in 0..3 {
-            for j in 0..4 {
-                if shape.coords()[i][j] {
-                    self.set_cell(
-                        DEFAULT_WIN_ROW + i,
-                        DEFAULT_WIN_COL + (2 * j),
-                        &COLOR[0].to_string(),
-                    );
-                    self.set_cell(
-                        DEFAULT_WIN_ROW + i,
-                        DEFAULT_WIN_COL + (2 * j) + 1,
-                        &COLOR[1].to_string(),
-                    );
-                } else {
-                    self.set_space(DEFAULT_WIN_ROW + i, DEFAULT_WIN_COL + (2 * j));
-                    self.set_space(DEFAULT_WIN_ROW + i, DEFAULT_WIN_COL + (2 * j) + 1);
-                }
+        self.wipe_display(Display::Next);
+        for coord in shape.coords() {
+            self.set_cell( *coord, Display::Next, shape.symbol());
+        }
+    }
+
+    pub fn wipe_display(&mut self, disp: Display) {
+        let start = get_tl(disp);
+        let end = start + get_dims(disp);
+
+        for row in start.row..end.row {
+            for col in start.col..end.col {
+                self.set_space(row, col);
             }
         }
     }
 
-    pub fn update_int_displays(&mut self, score: u32, row: usize, col: usize) {
-        self.set_cell(row, col, &score.to_string());
-
-        for z in 37..42 {
-            self.set_space(row, z);
-        }
-
-        for i in 1..(self.get_cell(row, col).len()) {
-            self.set_cell(row, col + i, "");
+    pub fn update_stat_display(&mut self, stat: u32, disp: Display) {
+        self.wipe_display(disp);
+        for (idx, chr) in stat.to_string().chars().enumerate() {
+            self.set_cell(Coord::new(0, idx), disp, Symbol::Data(chr));
         }
     }
 
     fn disp_flash(&self, lines: &Vec<usize>) {
         for row in 0..(lines.len()) {
-            for col in 3..23 {
-                mvaddstr(lines[row] as i32, col, "█");
+            for col in arena_row_iter() {
+                mvaddstr(lines[row] as i32, col as i32, "█");
             }
         }
     }
 
     pub fn shift_lines(&mut self, lines: &Vec<usize>) {
         for row in 0..lines.len() {
-            for col in 5..25 {
+            for col in arena_row_iter() {
                 self.set_space(lines[row], col);
             }
         }
@@ -220,10 +168,10 @@ impl Screen {
         }
 
         // optimize, use circular array w/ pointer
-        for row in 0..(lines.len()) {
-            for col in (0..(lines[row] - 1)).rev() {
-                for x in 5..25 {
-                    self.contents[col + 1][x] = self.contents[col][x].clone();
+        for line in lines.iter() {
+            for row in (0..*line).rev() {
+                for col in arena_row_iter() {
+                    self.contents[row + 1][col] = self.contents[row][col];
                 }
             }
         }

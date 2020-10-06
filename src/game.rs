@@ -1,4 +1,4 @@
-use ncurses::{attrset, getch, init_pair, mvprintw, nodelay, stdscr, wmove, wrefresh, COLOR_PAIR};
+use ncurses::{attrset, getch, mvprintw, nodelay, stdscr, wmove, wrefresh, COLOR_PAIR};
 use ncurses::{KEY_DOWN, KEY_LEFT, KEY_RIGHT, KEY_UP};
 use std::{mem, thread, time};
 const SPACE_CHAR: i32 = ' ' as i32;
@@ -7,16 +7,13 @@ const R_CHAR: i32 = 'r' as i32;
 const N_CHAR: i32 = 'n' as i32;
 const Y_CHAR: i32 = 'y' as i32;
 
-use crate::{coord::Coord, screen::Screen, shape::Shape, shape::COLOR};
-use crate::shape;
+use crate::primitives::{
+    Coord, Direction, Symbol, get_dims, get_tl, Display, ARENA_TL, ARENA_DIMS,
+};
+use crate::shape::Shape;
+use crate::screen::Screen;
 
 const SLEEP_DURATION: u64 = 10; // milliseconds
-
-enum Direction {
-    Left,
-    Right,
-    Down,
-}
 
 pub struct Game {
     tr_coord: Coord,
@@ -25,7 +22,7 @@ pub struct Game {
     cannot_move: bool,
     framerate: u32,
     is_dead: bool,
-    rem_drop_height: i32,
+    rem_drop_height: usize,
     screen: Screen,
     curr_shape: Shape,
     next_shape: Shape,
@@ -102,22 +99,8 @@ impl Game {
     }
 
     pub fn add_shape(&mut self) {
-        for row in 0..self.curr_shape.height() {
-            for col in 0..self.curr_shape.width() {
-                if self.curr_shape.coords()[row][col] {
-                    self.screen.set_cell(
-                        row + (self.tr_coord.row + shape::DEFAULT_ROW) as usize,
-                        (2 * col - 1) + (self.tr_coord.col + shape::DEFAULT_COL) as usize + 3,
-                        &self.curr_shape.chars()[0].to_string(),
-                    );
-
-                    self.screen.set_cell(
-                        row + (self.tr_coord.row + shape::DEFAULT_ROW) as usize,
-                        (2 * col) + (self.tr_coord.col + shape::DEFAULT_COL) as usize + 3,
-                        &self.curr_shape.chars()[1].to_string(),
-                    );
-                }
-            }
+        for coord in self.curr_shape.coords() {
+            self.screen.set_cell(*coord, Display::Arena, self.curr_shape.symbol());
         }
     }
 
@@ -203,7 +186,7 @@ impl Game {
         }
     }
 
-    fn ground_dist(&self) -> i32 {
+    fn ground_dist(&self) -> usize{
         let mut down = 0;
         loop {
             for coord in self.char_coords(self.curr_shape.coords(), down).iter() {
@@ -234,7 +217,10 @@ impl Game {
             .char_coords(&self.curr_shape.coords(), 1)
             .iter()
             .map(|coord| self.screen.get_cell(coord.row as usize, coord.col as usize))
-            .any(|chr| chr != " " && chr.parse::<i32>().is_ok())
+            .any(|chr| match chr {
+                Symbol::Block(_) => true,
+                _ => false,
+            })
         {
             true => self.is_game_over = true,
             false => {
@@ -248,27 +234,23 @@ impl Game {
         self.tr_coord.row += 1;
     }
 
-    fn draw(&self, down: i32) {
+    fn draw(&self, down: usize) {
         let mut curr_pos = Coord::new(
             self.tr_coord.row + shape::DEFAULT_ROW + down,
             self.tr_coord.col + shape::DEFAULT_COL,
         );
 
-        init_pair(2, self.curr_shape.color(), -1);
-        attrset(COLOR_PAIR(2));
+        attrset(COLOR_PAIR(self.curr_shape.color_num()));
         for row in 0..self.curr_shape.height() {
-            for col in 0..4 {
+            for col in 0..self.curr_shape.width() {
                 if self.curr_shape.coords()[row][col] {
-                    mvprintw(curr_pos.row, curr_pos.col, "██");
-                } else {
-                    mvprintw(curr_pos.row, curr_pos.col, "");
+                    mvprintw(curr_pos.row as i32, curr_pos.col as i32, "█");
                 }
                 curr_pos.col += 2;
             }
             curr_pos.row += 1;
             curr_pos.col = self.tr_coord.col + shape::DEFAULT_COL;
         }
-        init_pair(1, COLOR[4], -1);
         attrset(COLOR_PAIR(1));
     }
 
@@ -277,8 +259,8 @@ impl Game {
         mem::swap(&mut self.next_shape, &mut self.curr_shape);
         self.next_shape = Shape::new();
 
-        self.rem_drop_height = self.curr_shape.shape_height() as i32;
-        self.tr_coord = Coord::new(0 - self.rem_drop_height, 9);
+        self.rem_drop_height = self.curr_shape.shape_height();
+        self.tr_coord = Coord::new(shape::DEFAULT_ROW, shape::DEFAULT_COL);
     }
 
     fn gen_shape(&mut self) {
@@ -299,23 +281,25 @@ impl Game {
     }
 
     fn points(&mut self) -> bool {
-        let full_lines = (1..19)
-            .filter(|row| (5..25).all(|col| self.screen.get_cell(*row, col).parse::<u32>().is_ok()))
+        let start = get_tl(Display::Arena);
+        let end = start + get_dims(Display::Arena);
+        let full_lines = (start.row..end.row)
+            .filter(|row| (start.col..end.col).all(|col| match self.screen.get_cell(*row, col) {
+                Symbol::Block(_) => true,
+                _ => false,
+            }))
             .collect::<Vec<usize>>();
 
         self.lines += full_lines.len() as u32;
         self.score += self.points_earned(full_lines.len());
 
-        self.screen.update_int_displays(self.score, 10, 36);
-        self.screen.update_int_displays(self.lines, 16, 36);
+        self.screen.update_stat_display(self.score, Display::Score);
+        self.screen.update_stat_display(self.lines, Display::Lines);
 
         self.screen.shift_lines(&full_lines);
 
-        if (self.level == self.start_level && self.lines > self.start_level * 10 + 10)
-            || (self.lines - self.start_level * 10 + 10) - ((self.level - self.start_level) * 10)
-                >= 10
+        if (self.level == self.start_level && self.lines > self.start_level * 10 + 10) || (self.lines >= self.level * 10)
         {
-            self.screen.set_cell(0, 0, "0");
             self.advance_level();
             return true;
         }
@@ -365,20 +349,18 @@ impl Game {
         }
     }
 
-    pub fn char_coords(&self, shape: &[[bool; 5]; 5], down: i32) -> Vec<Coord> {
+    pub fn char_coords(&self, shape: &[Coord; 4], down: usize) -> Vec<Coord> {
         let curr_pos = Coord::new(
             self.tr_coord.row + shape::DEFAULT_ROW + down,
             self.tr_coord.col + shape::DEFAULT_COL,
         );
-
-        println!("{:?}", self.tr_coord.row);
 
         return (0..shape.len())
             .map(|row| {
                 (0..shape[row].len())
                     .filter(move |col| shape[row][*col])
                     .map(move |col| {
-                        Coord::new(curr_pos.row + row as i32, curr_pos.col + 2 * col as i32)
+                        Coord::new(curr_pos.row + row, curr_pos.col + 2 * col)
                     })
             })
             .flatten()

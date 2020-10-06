@@ -1,15 +1,19 @@
 use ncurses::{
+    COLOR_WHITE,
+    init_pair,
     constants::{stdscr, LcCategory},
     curs_set, endwin, initscr, keypad, nodelay, noecho, setlocale, start_color, use_default_colors,
     CURSOR_VISIBILITY,
 };
 
 use clap::{App, Arg};
-mod coord;
+mod primitives;
 mod game;
 mod screen;
 mod shape;
 mod test;
+
+use primitives::{num_to_shape, shape_color};
 
 fn main() {
     setlocale(LcCategory::ctype, "");
@@ -56,14 +60,17 @@ fn main() {
         .unwrap();
     let is_easy = matches.is_present("difficulty");
 
-    test::test();
-    // let screen: screen::Screen = screen::Screen::new();
-    // let mut game_instance = game::Game::new(screen, start_level, is_easy);
-    // loop {
-    //     if !game_instance.run() {
-    //         break;
-    //     }
-    // }
+    for color in 1..8 {
+        init_pair(color, shape_color(num_to_shape(color)), -1);
+    }
+    // test::test();
+    let screen: screen::Screen = screen::Screen::new();
+    let mut game_instance = game::Game::new(screen, start_level, is_easy);
+    loop {
+        if !game_instance.run() {
+            break;
+        }
+    }
 
     endwin();
 }
