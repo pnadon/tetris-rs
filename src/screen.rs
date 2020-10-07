@@ -3,9 +3,11 @@ use ncurses::{addstr, attrset, mvaddstr, refresh, stdscr, wmove, COLOR_PAIR};
 use std::{thread, time};
 
 use crate::primitives::{
-    Symbol, SCREEN_STR, to_symbol, Coord, from_symbol, arena_row_iter, NEXT_DISP_TL, ARENA_TL, ARENA_DIMS, STAT_DIMS, SCORE_DISP_TL, LINES_DISP_TL, get_tl, get_dims, Display,
+    arena_row_iter, from_symbol, get_dims, get_tl, in_arena, in_next_disp, to_symbol, Coord,
+    Display, Symbol, SCREEN_STR,
 };
 
+#[derive(Debug)]
 pub struct Screen {
     contents: Vec<Vec<Symbol>>,
 }
@@ -20,32 +22,6 @@ impl Screen {
         }
     }
 
-    fn in_area(row: usize, col: usize, tl: Coord, dims: Coord) -> bool {
-        (row >= tl.row as usize 
-            && 
-        row < tl.row as usize + dims.row as usize
-        ) && (col >= tl.col as usize
-            &&
-            col < tl.col as usize + dims.col as usize
-        ) 
-    }
-
-    fn in_next_disp(row: usize, col: usize) -> bool {
-        Self::in_area(row, col, NEXT_DISP_TL, STAT_DIMS)
-    }
-
-    fn in_arena(row: usize, col: usize) -> bool {
-        Self::in_area(row, col, ARENA_TL, ARENA_DIMS)
-    }
-
-    fn in_score_disp(row: usize, col: usize) -> bool {
-        Self::in_area(row, col, SCORE_DISP_TL, STAT_DIMS)
-    }
-
-    fn in_lines_disp(row: usize, col: usize) -> bool {
-        Self::in_area(row, col, LINES_DISP_TL, STAT_DIMS)
-    }
-
     pub fn width(&self, idx: usize) -> usize {
         self.contents[idx].len()
     }
@@ -58,12 +34,16 @@ impl Screen {
         self.contents[row][col]
     }
 
-    pub fn set_cell(&mut self, coord: Coord, disp: Display, val: Symbol) {
-        let tl = get_tl(disp);
-        self.contents[coord.row + tl.row][coord.col + tl.col] = val;
-        if let Symbol::Block(_) = val {
-            self.contents[coord.row + tl.row][coord.col + tl.col + 1] = val;
+    pub fn set_cell(&mut self, coord: Coord, val: Symbol) {
+        self.contents[coord.row][coord.col] = val;
+        if let Symbol::LiveBlock(_) | Symbol::DeadBlock(_) = val {
+            self.contents[coord.row][coord.col + 1] = val;
         }
+    }
+
+    pub fn set_disp_cell(&mut self, coord: Coord, disp: Display, val: Symbol) {
+        let tl = get_tl(disp);
+        self.set_cell(Coord::new(coord.row + tl.row, coord.col + tl.col), val);
     }
 
     pub fn is_space(&self, row: usize, col: usize) -> bool {
@@ -77,38 +57,47 @@ impl Screen {
     pub fn top(&mut self) {
         wmove(stdscr(), 0, 0);
         addstr(SCREEN_STR.lines().nth(0).unwrap());
+        wmove(stdscr(), 0, 0);
     }
 
-    pub fn draw(&self) {
+    pub fn draw(&mut self) {
         for row in 0..(self.height()) {
             for col in 0..(self.width(row)) {
                 let cur = self.get_cell(row, col);
                 // "magic numbers", checks if inside of game window, should be replaced
-                if Self::in_arena(row, col) || Self::in_next_disp(row, col) {
+                if in_arena(row, col) || in_next_disp(row, col) {
                     match cur {
-                        Symbol::Block(num) => {
+                        Symbol::DeadBlock(num) | Symbol::LiveBlock(num) => {
                             attrset(COLOR_PAIR(num));
 
-                            addstr(&from_symbol(cur).to_string());
+                            mvaddstr(row as i32, col as i32, &from_symbol(cur).to_string());
                             attrset(COLOR_PAIR(1));
-                        },
+                        }
                         Symbol::Space => {
-                            addstr(&from_symbol(cur).to_string());
-                        },
-                        _ => panic!("Invalid symbol in arena"),
+                            mvaddstr(row as i32, col as i32, &from_symbol(cur).to_string());
+                        }
+                        _ => (),
                     }
                 } else {
-                    addstr(&from_symbol(cur).to_string());
+                    mvaddstr(row as i32, col as i32, &from_symbol(cur).to_string());
                 }
             }
-            addstr("\n");
         }
+        wmove(stdscr(), 0, 0);
     }
 
     pub fn add_next(&mut self, shape: &Shape) {
         self.wipe_display(Display::Next);
-        for coord in shape.coords() {
-            self.set_cell( *coord, Display::Next, shape.symbol());
+        for coord in shape.coords().iter() {
+            if in_next_disp(coord.row, coord.col) {
+                self.set_cell(*coord, shape.symbol());
+            } else {
+                panic!(
+                    "invalid shape & coords for add_next: {:?}\n{:?}",
+                    shape,
+                    shape.coords()
+                );
+            }
         }
     }
 
@@ -118,15 +107,17 @@ impl Screen {
 
         for row in start.row..end.row {
             for col in start.col..end.col {
+                mvaddstr(row as i32, col as i32, " ");
                 self.set_space(row, col);
             }
         }
+        wmove(stdscr(), 0, 0);
     }
 
     pub fn update_stat_display(&mut self, stat: u32, disp: Display) {
         self.wipe_display(disp);
         for (idx, chr) in stat.to_string().chars().enumerate() {
-            self.set_cell(Coord::new(0, idx), disp, Symbol::Data(chr));
+            self.set_disp_cell(Coord::new(0, idx), disp, Symbol::Data(chr));
         }
     }
 
@@ -136,6 +127,7 @@ impl Screen {
                 mvaddstr(lines[row] as i32, col as i32, "█");
             }
         }
+        wmove(stdscr(), 0, 0);
     }
 
     pub fn shift_lines(&mut self, lines: &Vec<usize>) {
@@ -152,17 +144,13 @@ impl Screen {
         if lines.len() > 0 {
             self.disp_flash(lines);
 
-            wmove(stdscr(), 0, 0);
             refresh();
             thread::sleep(time::Duration::from_millis(45));
             self.draw();
-            wmove(stdscr(), 0, 0);
             refresh();
             thread::sleep(time::Duration::from_millis(25));
 
             self.disp_flash(lines);
-
-            wmove(stdscr(), 0, 0);
             refresh();
             thread::sleep(time::Duration::from_millis(45));
         }
@@ -175,5 +163,9 @@ impl Screen {
                 }
             }
         }
+    }
+
+    pub fn contents(&self) -> &Vec<Vec<Symbol>> {
+        &self.contents
     }
 }

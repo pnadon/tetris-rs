@@ -1,14 +1,12 @@
 use ncurses::{
-    COLOR_WHITE,
-    init_pair,
     constants::{stdscr, LcCategory},
-    curs_set, endwin, initscr, keypad, nodelay, noecho, setlocale, start_color, use_default_colors,
-    CURSOR_VISIBILITY,
+    curs_set, endwin, init_pair, initscr, keypad, nodelay, noecho, setlocale, start_color,
+    use_default_colors, CURSOR_VISIBILITY,
 };
 
 use clap::{App, Arg};
-mod primitives;
 mod game;
+mod primitives;
 mod screen;
 mod shape;
 mod test;
@@ -17,13 +15,6 @@ use primitives::{num_to_shape, shape_color};
 
 fn main() {
     setlocale(LcCategory::ctype, "");
-    initscr();
-    noecho();
-    keypad(stdscr(), true);
-    nodelay(stdscr(), true);
-    curs_set(CURSOR_VISIBILITY::CURSOR_INVISIBLE);
-    start_color();
-    use_default_colors();
 
     let matches = App::new("Tetris_rs")
         .version("1.0")
@@ -60,13 +51,20 @@ fn main() {
         .unwrap();
     let is_easy = matches.is_present("difficulty");
 
-    for color in 1..8 {
-        init_pair(color, shape_color(num_to_shape(color)), -1);
-    }
     // test::test();
-    let screen: screen::Screen = screen::Screen::new();
-    let mut game_instance = game::Game::new(screen, start_level, is_easy);
     loop {
+        initscr();
+        noecho();
+        keypad(stdscr(), true);
+        nodelay(stdscr(), true);
+        curs_set(CURSOR_VISIBILITY::CURSOR_INVISIBLE);
+        start_color();
+        use_default_colors();
+        for color in 1..8 {
+            init_pair(color, shape_color(num_to_shape(color)), -1);
+        }
+        let screen: screen::Screen = screen::Screen::new();
+        let mut game_instance = game::Game::new(screen, start_level, is_easy);
         if !game_instance.run() {
             break;
         }

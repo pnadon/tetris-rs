@@ -6,22 +6,19 @@ const E_CHAR: i32 = 'e' as i32;
 const R_CHAR: i32 = 'r' as i32;
 const N_CHAR: i32 = 'n' as i32;
 const Y_CHAR: i32 = 'y' as i32;
+const D_CHAR: i32 = 'd' as i32;
 
 use crate::primitives::{
-    Coord, Direction, Symbol, get_dims, get_tl, Display, ARENA_TL, ARENA_DIMS,
+    get_dims, get_tl, Coord, Direction, Display, Symbol, ARENA_DIMS, ARENA_TL,
 };
-use crate::shape::Shape;
 use crate::screen::Screen;
+use crate::shape::Shape;
 
 const SLEEP_DURATION: u64 = 10; // milliseconds
 
 pub struct Game {
-    tr_coord: Coord,
-    is_game_over: bool,
     is_easy: bool,
-    cannot_move: bool,
     framerate: u32,
-    is_dead: bool,
     rem_drop_height: usize,
     screen: Screen,
     curr_shape: Shape,
@@ -35,12 +32,8 @@ pub struct Game {
 impl Game {
     pub fn new(screen: Screen, start_level: u32, is_easy: bool) -> Self {
         Self {
-            is_game_over: false,
-            tr_coord: Coord::new(0, 0),
-            cannot_move: false,
             is_easy,
             framerate: 24 - start_level,
-            is_dead: false,
             rem_drop_height: 0,
             screen,
             curr_shape: Shape::new(),
@@ -55,216 +48,197 @@ impl Game {
     pub fn run(&mut self) -> bool {
         let mut new_shape = true;
         let mut count = 0;
+        let mut stand_still = 0;
 
         loop {
-            new_shape = self.check_shape_state(new_shape, count);
-
-            if self.is_game_over {
-                break;
+            if new_shape {
+                self.gen_shape();
+                new_shape = false;
+            }
+            if count % self.framerate == 0 {
+                if self.rem_drop_height > 0 {
+                    if !self.drop_shape() {
+                        break;
+                    }
+                } else if self.curr_shape.display() == Display::Drop {
+                    self.curr_shape.change_display(Display::Arena, false);
+                }
+                if !self.move_shape(Direction::Down) {
+                    stand_still += 1;
+                    if !self.is_easy && stand_still > 1 || stand_still > 2 {
+                        self.curr_shape.kill();
+                    }
+                } else {
+                    stand_still = 0;
+                }
             }
 
             thread::sleep(time::Duration::from_millis(SLEEP_DURATION));
-
             match getch() {
                 KEY_UP => self.rotate(),
-                KEY_DOWN => self.move_shape(Direction::Down),
-                KEY_LEFT => self.move_shape(Direction::Left),
-                KEY_RIGHT => self.move_shape(Direction::Right),
+                KEY_DOWN => {
+                    self.move_shape(Direction::Down);
+                }
+                KEY_LEFT => {
+                    self.move_shape(Direction::Left);
+                }
+                KEY_RIGHT => {
+                    self.move_shape(Direction::Right);
+                }
                 SPACE_CHAR => self.ground(),
                 E_CHAR => self.is_easy ^= true,
-                R_CHAR => return true,
+                R_CHAR => break,
                 _ => (),
             }
 
             self.screen.draw();
-
             if self.is_easy {
                 self.draw(self.ground_dist());
             }
-
             self.draw(0);
             self.screen.top();
-            wmove(stdscr(), 0, 0);
 
-            count += 1;
-
-            if self.is_dead {
+            if self.curr_shape.is_dead() {
                 new_shape = true;
                 self.add_shape();
                 self.points();
             }
+
+            count += 1;
         }
 
         return self.game_over();
     }
 
     pub fn add_shape(&mut self) {
-        for coord in self.curr_shape.coords() {
-            self.screen.set_cell(*coord, Display::Arena, self.curr_shape.symbol());
+        assert!(match self.curr_shape.display() {
+            Display::Drop => true,
+            Display::Arena => true,
+            _ => false,
+        });
+        // assert!(self.curr_shape.is_dead());
+        for coord in self.curr_shape.coords().iter() {
+            self.screen.set_cell(*coord, self.curr_shape.symbol());
         }
-    }
-
-    fn check_shape_state(&mut self, new_shape: bool, count: u32) -> bool {
-        let mut new_shape = new_shape;
-        if new_shape {
-            self.gen_shape();
-            new_shape = false;
-        } else if (count + 1) % self.framerate == 0 {
-            self.check_death();
-        } else if count % self.framerate == 0 {
-            if self.rem_drop_height > 0 {
-                self.drop_shape();
-            } else {
-                self.fall();
-
-                if self.cannot_move {
-                    new_shape = true;
-                }
-            }
-        }
-        new_shape
     }
 
     fn rotate(&mut self) {
-        let mut temp = [[false; 5]; 5];
-
-        for row in 0..self.curr_shape.height() {
-            for col in 0..self.curr_shape.width() {
-                temp[temp.len() - 1 - col][row] = self.curr_shape.coords()[row][col]
-            }
-        }
-
-        if self.char_coords(&temp, 1).iter().all(|coord| {
-            self.screen
-                .is_space(coord.row as usize - 1, coord.col as usize + 2)
+        let mut test = self.curr_shape;
+        test.rotate_right();
+        if test.coords().iter().all(|coord| {
+            self.screen.is_space(coord.row, coord.col)
+                && self.screen.is_space(coord.row, coord.col + 1)
         }) {
-            self.curr_shape.set_coords(temp);
+            ()
+        } else if self.space_available(test, Direction::Left) {
+            self.move_shape(Direction::Left);
+        } else if self.space_available(test, Direction::Right) {
+            self.move_shape(Direction::Right);
+        } else {
+            return;
         }
+        self.curr_shape.rotate_right();
     }
 
-    fn move_shape(&mut self, dir: Direction) {
-        let coords = self.char_coords(self.curr_shape.coords(), 1);
+    fn move_shape(&mut self, dir: Direction) -> bool {
         match dir {
             Direction::Left => {
-                if coords.iter().all(|coord| {
-                    self.screen
-                        .is_space(coord.row as usize - 1, coord.col as usize)
-                }) {
-                    self.tr_coord.col -= 2;
+                if self.space_available(self.curr_shape, dir) {
+                    self.curr_shape.move_left();
+                    true
+                } else {
+                    false
                 }
             }
             Direction::Right => {
-                if coords.iter().all(|coord| {
-                    self.screen
-                        .is_space(coord.row as usize - 1, coord.col as usize + 4)
-                }) {
-                    self.tr_coord.col += 2;
+                if self.space_available(self.curr_shape, dir) {
+                    self.curr_shape.move_right();
+                    true
+                } else {
+                    false
                 }
             }
             Direction::Down => {
-                if coords.iter().all(|coord| {
-                    self.screen
-                        .is_space(coord.row as usize + 1, coord.col as usize + 2)
-                }) {
-                    self.tr_coord.row += 1;
+                if self.space_available(self.curr_shape, dir) {
+                    self.curr_shape.move_down();
+                    true
+                } else {
+                    false
                 }
             }
         }
+    }
+
+    fn space_available(&self, shape: Shape, dir: Direction) -> bool {
+        shape.coords().iter().all(|coord| match dir {
+            Direction::Left => {
+                self.screen.is_space(coord.row, coord.col - 2)
+                    && self.screen.is_space(coord.row, coord.col - 1)
+            }
+            Direction::Right => {
+                self.screen.is_space(coord.row, coord.col + 1)
+                    && self.screen.is_space(coord.row, coord.col + 2)
+            }
+            Direction::Down => {
+                self.screen.is_space(coord.row + 1, coord.col)
+                    && self.screen.is_space(coord.row + 1, coord.col + 1)
+            }
+        })
     }
 
     fn ground(&mut self) {
-        loop {
-            for coord in self.char_coords(self.curr_shape.coords(), 1).iter() {
-                if !self
-                    .screen
-                    .is_space(coord.row as usize + 1, coord.col as usize + 2)
-                {
-                    return;
-                }
-            }
-            self.tr_coord.row += 1;
-        }
+        while self.move_shape(Direction::Down) {}
+        self.curr_shape.kill();
     }
 
-    fn ground_dist(&self) -> usize{
+    fn ground_dist(&self) -> usize {
         let mut down = 0;
+        let mut test = self.curr_shape;
         loop {
-            for coord in self.char_coords(self.curr_shape.coords(), down).iter() {
-                if !self
-                    .screen
-                    .is_space(coord.row as usize + 1, coord.col as usize + 2)
-                {
-                    return down;
-                }
+            if !self.space_available(test, Direction::Down) {
+                return down;
             }
+            test.move_down();
             down += 1;
         }
     }
 
-    fn check_death(&mut self) {
-        self.is_dead = self
-            .char_coords(&self.curr_shape.coords(), 1)
-            .iter()
-            .any(|coord| {
-                !self
-                    .screen
-                    .is_space(coord.row as usize, coord.col as usize + 3)
-            })
-    }
-
-    fn drop_shape(&mut self) {
-        match self
-            .char_coords(&self.curr_shape.coords(), 1)
-            .iter()
-            .map(|coord| self.screen.get_cell(coord.row as usize, coord.col as usize))
-            .any(|chr| match chr {
-                Symbol::Block(_) => true,
+    fn drop_shape(&mut self) -> bool {
+        // assert!(self.curr_shape.display() == Display::Arena);
+        if self.curr_shape.coords().iter().any(|coord| {
+            match (
+                self.screen.get_cell(coord.row + 1, coord.col),
+                self.screen.get_cell(coord.row + 1, coord.col + 1),
+            ) {
+                (Symbol::DeadBlock(_), _) | (_, Symbol::DeadBlock(_)) => true,
                 _ => false,
-            })
-        {
-            true => self.is_game_over = true,
-            false => {
-                self.tr_coord.row += 1;
-                self.rem_drop_height -= 1;
             }
+        }) {
+            return false;
         }
-    }
-
-    fn fall(&mut self) {
-        self.tr_coord.row += 1;
+        self.curr_shape.move_down();
+        self.rem_drop_height -= 1;
+        true
     }
 
     fn draw(&self, down: usize) {
-        let mut curr_pos = Coord::new(
-            self.tr_coord.row + shape::DEFAULT_ROW + down,
-            self.tr_coord.col + shape::DEFAULT_COL,
-        );
-
         attrset(COLOR_PAIR(self.curr_shape.color_num()));
-        for row in 0..self.curr_shape.height() {
-            for col in 0..self.curr_shape.width() {
-                if self.curr_shape.coords()[row][col] {
-                    mvprintw(curr_pos.row as i32, curr_pos.col as i32, "█");
-                }
-                curr_pos.col += 2;
-            }
-            curr_pos.row += 1;
-            curr_pos.col = self.tr_coord.col + shape::DEFAULT_COL;
+        for coord in self.curr_shape.descent_coords(down).iter() {
+            mvprintw(coord.row as i32, coord.col as i32, "██");
         }
         attrset(COLOR_PAIR(1));
     }
 
-    fn generate(&mut self) {
-        self.is_dead = false;
-        mem::swap(&mut self.next_shape, &mut self.curr_shape);
-        self.next_shape = Shape::new();
-
-        self.rem_drop_height = self.curr_shape.shape_height();
-        self.tr_coord = Coord::new(shape::DEFAULT_ROW, shape::DEFAULT_COL);
-    }
-
     fn gen_shape(&mut self) {
-        self.generate();
+        self.curr_shape = self.next_shape;
+        while self.next_shape == self.curr_shape {
+            self.next_shape = Shape::new();
+        }
+
+        self.rem_drop_height = 2;
+
+        self.curr_shape.change_display(Display::Drop, true);
+        self.curr_shape.center();
         self.screen.add_next(&self.next_shape);
         self.drop_shape();
     }
@@ -284,10 +258,12 @@ impl Game {
         let start = get_tl(Display::Arena);
         let end = start + get_dims(Display::Arena);
         let full_lines = (start.row..end.row)
-            .filter(|row| (start.col..end.col).all(|col| match self.screen.get_cell(*row, col) {
-                Symbol::Block(_) => true,
-                _ => false,
-            }))
+            .filter(|row| {
+                (start.col..end.col).all(|col| match self.screen.get_cell(*row, col) {
+                    Symbol::DeadBlock(_) | Symbol::LiveBlock(_) => true,
+                    _ => false,
+                })
+            })
             .collect::<Vec<usize>>();
 
         self.lines += full_lines.len() as u32;
@@ -298,7 +274,8 @@ impl Game {
 
         self.screen.shift_lines(&full_lines);
 
-        if (self.level == self.start_level && self.lines > self.start_level * 10 + 10) || (self.lines >= self.level * 10)
+        if (self.level == self.start_level && self.lines > self.start_level * 10 + 10)
+            || (self.lines >= self.level * 10)
         {
             self.advance_level();
             return true;
@@ -338,32 +315,60 @@ impl Game {
         self.screen.top();
 
         mvprintw(9, 8, "Game over!");
-        mvprintw(10, 5, "Try again? (y/n)");
+        mvprintw(10, 5, "Try again? (y/n/d)");
 
         loop {
             match getch() {
                 N_CHAR => return false,
                 Y_CHAR => return true,
+                D_CHAR => {
+                    let bbox = self.curr_shape.bounding_box();
+                    mvprintw(
+                        0,
+                        5,
+                        &format!(
+                            "{},{} -> [[{},{}][{},{}]]",
+                            self.curr_shape.tl_coords().row,
+                            self.curr_shape.tl_coords().col,
+                            bbox[0].row,
+                            bbox[0].col,
+                            bbox[1].row,
+                            bbox[1].col
+                        ),
+                    );
+                    mvprintw(22, 0, &format!("{:?}", self.screen.contents()));
+                    mvprintw(21, 0, &format!("{:?}", self.curr_shape.coords()));
+                    loop {
+                        let mut coords = Coord::new(0, 0);
+                        loop {
+                            match getch() {
+                                num @ 48..=57 => coords.row = coords.row * 10 + (num as usize - 48),
+                                D_CHAR => break,
+                                _ => (),
+                            }
+                            match getch() {
+                                num @ 48..=57 => coords.col = coords.col * 10 + (num as usize - 48),
+                                D_CHAR => break,
+                                R_CHAR => {
+                                    mvprintw(
+                                        18,
+                                        30,
+                                        &format!("{:?}", self.screen.contents()[coords.row]),
+                                    );
+                                }
+                                _ => (),
+                            }
+                            mvprintw(0, 0, &format!("{} {}", coords.row, coords.col));
+                        }
+                        mvprintw(
+                            20,
+                            0,
+                            &format!("{:?}", self.screen.contents()[coords.row][coords.col]),
+                        );
+                    }
+                }
                 _ => (),
             }
         }
-    }
-
-    pub fn char_coords(&self, shape: &[Coord; 4], down: usize) -> Vec<Coord> {
-        let curr_pos = Coord::new(
-            self.tr_coord.row + shape::DEFAULT_ROW + down,
-            self.tr_coord.col + shape::DEFAULT_COL,
-        );
-
-        return (0..shape.len())
-            .map(|row| {
-                (0..shape[row].len())
-                    .filter(move |col| shape[row][*col])
-                    .map(move |col| {
-                        Coord::new(curr_pos.row + row, curr_pos.col + 2 * col)
-                    })
-            })
-            .flatten()
-            .collect::<Vec<Coord>>();
     }
 }
