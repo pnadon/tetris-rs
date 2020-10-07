@@ -101,6 +101,7 @@ impl Game {
             if self.curr_shape.is_dead() {
                 self.screen.set_shape(self.curr_shape);
                 self.points();
+                thread::sleep(time::Duration::from_millis(SLEEP_DURATION));
                 new_shape = true;
             }
 
@@ -176,6 +177,9 @@ impl Game {
     }
 
     fn ground(&mut self) {
+        if self.curr_shape.display() == Display::Drop {
+            return;
+        }
         while self.move_shape(Direction::Down) {}
         self.curr_shape.kill();
     }

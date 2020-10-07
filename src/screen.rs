@@ -55,8 +55,11 @@ impl Screen {
     }
 
     pub fn top(&mut self) {
+        let mut lines_iter = SCREEN_STR.lines();
         wmove(stdscr(), 0, 0);
-        addstr(SCREEN_STR.lines().next().unwrap());
+        addstr(lines_iter.next().unwrap());
+        wmove(stdscr(), 1, 0);
+        addstr(lines_iter.next().unwrap());
     }
 
     pub fn draw(&mut self) {
@@ -143,37 +146,27 @@ impl Screen {
     }
 
     pub fn shift_lines(&mut self, lines: &[usize]) {
-        for row in lines.iter() {
-            for col in arena_row_iter() {
-                self.set_space(*row, col);
-            }
+        if lines.is_empty() {
+            return;
         }
 
-        thread::sleep(time::Duration::from_millis(45));
-        wmove(stdscr(), 0, 0);
+        self.disp_flash(lines);
+
         refresh();
+        thread::sleep(time::Duration::from_millis(45));
+        self.draw();
+        refresh();
+        thread::sleep(time::Duration::from_millis(25));
 
-        if !lines.is_empty() {
-            self.disp_flash(lines);
-
-            refresh();
-            thread::sleep(time::Duration::from_millis(45));
-            self.draw();
-            refresh();
-            thread::sleep(time::Duration::from_millis(25));
-
-            self.disp_flash(lines);
-            refresh();
-            thread::sleep(time::Duration::from_millis(45));
-        }
+        self.disp_flash(lines);
+        refresh();
+        thread::sleep(time::Duration::from_millis(45));
 
         // optimize, use circular array w/ pointer
         for line in lines.iter() {
-            for row in (0..*line).rev() {
+            for row in (get_tl(Display::Arena).row..*line).rev() {
                 for col in arena_row_iter() {
-                    if let Symbol::DeadBlock(sym) = self.contents[row][col] {
-                        self.contents[row + 1][col] = Symbol::DeadBlock(sym);
-                    }
+                    self.contents[row + 1][col] = self.contents[row][col];
                 }
             }
         }
