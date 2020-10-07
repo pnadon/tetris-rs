@@ -286,26 +286,26 @@ impl Game {
         wrefresh(stdscr());
 
         for row in 8..12 {
-            for col in 3..23 {
+            for col in 4..24 {
                 mvprintw(row, col, " ");
             }
         }
 
-        mvprintw(11, 2, "┣");
-        mvprintw(8, 2, "┣");
+        mvprintw(11, 3, "┣");
+        mvprintw(8, 3, "┣");
 
-        for row in 3..24 {
+        for row in 4..25 {
             mvprintw(8, row, "━");
             mvprintw(11, row, "━");
         }
 
-        mvprintw(11, 23, "┫");
-        mvprintw(8, 23, "┫");
+        mvprintw(11, 24, "┫");
+        mvprintw(8, 24, "┫");
 
         self.screen.top();
 
-        mvprintw(9, 8, "Game over!");
-        mvprintw(10, 5, "Try again? (y/n/d)");
+        mvprintw(9, 9, "Game over!");
+        mvprintw(10, 6, "Try again? (y/n/d)");
 
         loop {
             match getch() {
