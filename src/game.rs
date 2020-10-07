@@ -8,9 +8,7 @@ const N_CHAR: i32 = 'n' as i32;
 const Y_CHAR: i32 = 'y' as i32;
 const D_CHAR: i32 = 'd' as i32;
 
-use crate::primitives::{
-    get_dims, get_tl, Coord, Direction, Display, Symbol,
-};
+use crate::primitives::{get_dims, get_tl, Coord, Direction, Display, Symbol};
 use crate::screen::Screen;
 use crate::shape::Shape;
 
@@ -119,7 +117,6 @@ impl Game {
                 && self.screen.is_space(coord.row, coord.col + 1)
         });
         if occupies_empty_space {
-            
         } else if self.space_available(test, Direction::Left) {
             self.move_shape(Direction::Left);
         } else if self.space_available(test, Direction::Right) {

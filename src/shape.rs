@@ -1,8 +1,8 @@
 use rand::prelude::random;
 
 use crate::primitives::{
-    get_dims, get_tl, num_to_shape, shape_coords, shape_to_num, Coord, Display,
-    ShapeType, Symbol, BLOCK_HORIZ_MULT,
+    get_dims, get_tl, num_to_shape, shape_coords, shape_to_num, Coord, Display, ShapeType, Symbol,
+    BLOCK_HORIZ_MULT,
 };
 
 #[derive(Debug, Clone, Copy)]
