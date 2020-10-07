@@ -1,11 +1,11 @@
 use rand::prelude::random;
 
 use crate::primitives::{
-    get_dims, get_tl, in_arena, num_to_shape, shape_coords, shape_to_num, Coord, Display,
+    get_dims, get_tl, num_to_shape, shape_coords, shape_to_num, Coord, Display,
     ShapeType, Symbol, BLOCK_HORIZ_MULT,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy)]
 pub struct Shape {
     clockwise_rotations: u8,
     shape_type: ShapeType,
@@ -30,7 +30,7 @@ impl Shape {
     pub fn coords(&self) -> [Coord; 4] {
         let mut coords = shape_coords(self.shape_type);
         for i in 0..4 {
-            for rotation in 0..self.clockwise_rotations {
+            for _ in 0..self.clockwise_rotations {
                 coords[i] = coords[i].rotate(match self.shape_type {
                     ShapeType::I => 4,
                     _ => 3,
@@ -65,12 +65,6 @@ impl Shape {
         self.tl_coords
     }
 
-    pub fn shape_height(&self) -> usize {
-        self.coords().iter().map(|coord| coord.row).max().unwrap()
-            - self.coords().iter().map(|coord| coord.row).min().unwrap()
-            + 1
-    }
-
     pub fn shape_width(&self) -> usize {
         self.coords().iter().map(|coord| coord.col).max().unwrap()
             - self.coords().iter().map(|coord| coord.col).min().unwrap()
@@ -92,10 +86,6 @@ impl Shape {
 
     pub fn color_num(&self) -> i16 {
         shape_to_num(self.shape_type)
-    }
-
-    pub fn shape_type(&self) -> ShapeType {
-        self.shape_type
     }
 
     pub fn symbol(&self) -> Symbol {
@@ -136,5 +126,9 @@ impl Shape {
 
     pub fn is_dead(&self) -> bool {
         self.is_dead
+    }
+
+    pub fn shape_type(&self) -> ShapeType {
+        self.shape_type
     }
 }

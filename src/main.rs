@@ -9,7 +9,6 @@ mod game;
 mod primitives;
 mod screen;
 mod shape;
-mod test;
 
 use primitives::{num_to_shape, shape_color};
 
@@ -51,7 +50,6 @@ fn main() {
         .unwrap();
     let is_easy = matches.is_present("difficulty");
 
-    // test::test();
     loop {
         initscr();
         noecho();

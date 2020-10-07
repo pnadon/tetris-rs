@@ -34,14 +34,14 @@ impl Screen {
         self.contents[row][col]
     }
 
-    pub fn set_cell(&mut self, coord: Coord, val: Symbol) {
+    fn set_cell(&mut self, coord: Coord, val: Symbol) {
         self.contents[coord.row][coord.col] = val;
         if let Symbol::LiveBlock(_) | Symbol::DeadBlock(_) = val {
             self.contents[coord.row][coord.col + 1] = val;
         }
     }
 
-    pub fn set_disp_cell(&mut self, coord: Coord, disp: Display, val: Symbol) {
+    fn set_disp_cell(&mut self, coord: Coord, disp: Display, val: Symbol) {
         let tl = get_tl(disp);
         self.set_cell(Coord::new(coord.row + tl.row, coord.col + tl.col), val);
     }
@@ -56,8 +56,7 @@ impl Screen {
 
     pub fn top(&mut self) {
         wmove(stdscr(), 0, 0);
-        addstr(SCREEN_STR.lines().nth(0).unwrap());
-        wmove(stdscr(), 0, 0);
+        addstr(SCREEN_STR.lines().next().unwrap());
     }
 
     pub fn draw(&mut self) {
@@ -121,19 +120,32 @@ impl Screen {
         }
     }
 
-    fn disp_flash(&self, lines: &Vec<usize>) {
-        for row in 0..(lines.len()) {
+    pub fn set_shape(&mut self, shape: Shape) {
+        assert!(match shape.display() {
+            Display::Drop => true,
+            Display::Arena => true,
+            _ => false,
+        });
+        assert!(shape.is_dead());
+        // assert!(self.curr_shape.is_dead());
+        for coord in shape.coords().iter() {
+            self.set_cell(*coord, shape.symbol());
+        }
+    }
+
+    fn disp_flash(&self, lines: &[usize]) {
+        for row in lines {
             for col in arena_row_iter() {
-                mvaddstr(lines[row] as i32, col as i32, "█");
+                mvaddstr(*row as i32, col as i32, "█");
             }
         }
         wmove(stdscr(), 0, 0);
     }
 
-    pub fn shift_lines(&mut self, lines: &Vec<usize>) {
-        for row in 0..lines.len() {
+    pub fn shift_lines(&mut self, lines: &[usize]) {
+        for row in lines.iter() {
             for col in arena_row_iter() {
-                self.set_space(lines[row], col);
+                self.set_space(*row, col);
             }
         }
 
@@ -141,7 +153,7 @@ impl Screen {
         wmove(stdscr(), 0, 0);
         refresh();
 
-        if lines.len() > 0 {
+        if !lines.is_empty() {
             self.disp_flash(lines);
 
             refresh();
@@ -159,7 +171,9 @@ impl Screen {
         for line in lines.iter() {
             for row in (0..*line).rev() {
                 for col in arena_row_iter() {
-                    self.contents[row + 1][col] = self.contents[row][col];
+                    if let Symbol::DeadBlock(sym) = self.contents[row][col] {
+                        self.contents[row + 1][col] = Symbol::DeadBlock(sym);
+                    }
                 }
             }
         }

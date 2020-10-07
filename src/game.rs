@@ -1,6 +1,6 @@
-use ncurses::{attrset, getch, mvprintw, nodelay, stdscr, wmove, wrefresh, COLOR_PAIR};
+use ncurses::{attrset, getch, mvprintw, nodelay, stdscr, wrefresh, COLOR_PAIR};
 use ncurses::{KEY_DOWN, KEY_LEFT, KEY_RIGHT, KEY_UP};
-use std::{mem, thread, time};
+use std::{thread, time};
 const SPACE_CHAR: i32 = ' ' as i32;
 const E_CHAR: i32 = 'e' as i32;
 const R_CHAR: i32 = 'r' as i32;
@@ -9,7 +9,7 @@ const Y_CHAR: i32 = 'y' as i32;
 const D_CHAR: i32 = 'd' as i32;
 
 use crate::primitives::{
-    get_dims, get_tl, Coord, Direction, Display, Symbol, ARENA_DIMS, ARENA_TL,
+    get_dims, get_tl, Coord, Direction, Display, Symbol,
 };
 use crate::screen::Screen;
 use crate::shape::Shape;
@@ -99,37 +99,26 @@ impl Game {
             self.screen.top();
 
             if self.curr_shape.is_dead() {
-                new_shape = true;
-                self.add_shape();
+                self.screen.set_shape(self.curr_shape);
                 self.points();
+                new_shape = true;
             }
 
             count += 1;
         }
 
-        return self.game_over();
-    }
-
-    pub fn add_shape(&mut self) {
-        assert!(match self.curr_shape.display() {
-            Display::Drop => true,
-            Display::Arena => true,
-            _ => false,
-        });
-        // assert!(self.curr_shape.is_dead());
-        for coord in self.curr_shape.coords().iter() {
-            self.screen.set_cell(*coord, self.curr_shape.symbol());
-        }
+        self.game_over()
     }
 
     fn rotate(&mut self) {
         let mut test = self.curr_shape;
         test.rotate_right();
-        if test.coords().iter().all(|coord| {
+        let occupies_empty_space = test.coords().iter().all(|coord| {
             self.screen.is_space(coord.row, coord.col)
                 && self.screen.is_space(coord.row, coord.col + 1)
-        }) {
-            ()
+        });
+        if occupies_empty_space {
+            
         } else if self.space_available(test, Direction::Left) {
             self.move_shape(Direction::Left);
         } else if self.space_available(test, Direction::Right) {
@@ -205,7 +194,7 @@ impl Game {
 
     fn drop_shape(&mut self) -> bool {
         // assert!(self.curr_shape.display() == Display::Arena);
-        if self.curr_shape.coords().iter().any(|coord| {
+        let would_occupy_empty_space = self.curr_shape.coords().iter().any(|coord| {
             match (
                 self.screen.get_cell(coord.row + 1, coord.col),
                 self.screen.get_cell(coord.row + 1, coord.col + 1),
@@ -213,7 +202,8 @@ impl Game {
                 (Symbol::DeadBlock(_), _) | (_, Symbol::DeadBlock(_)) => true,
                 _ => false,
             }
-        }) {
+        });
+        if would_occupy_empty_space {
             return false;
         }
         self.curr_shape.move_down();
@@ -231,7 +221,7 @@ impl Game {
 
     fn gen_shape(&mut self) {
         self.curr_shape = self.next_shape;
-        while self.next_shape == self.curr_shape {
+        while self.next_shape.shape_type() == self.curr_shape.shape_type() {
             self.next_shape = Shape::new();
         }
 
@@ -281,7 +271,7 @@ impl Game {
             return true;
         }
 
-        return false;
+        false
     }
 
     fn advance_level(&mut self) {

@@ -32,7 +32,6 @@ pub const DROP_DISP_TL: Coord = Coord { row: 0, col: 4 };
 pub const ARENA_TL: Coord = Coord { row: 2, col: 4 };
 pub const STAT_DIMS: Coord = Coord { row: 1, col: 7 };
 pub const ARENA_DIMS: Coord = Coord { row: 18, col: 20 };
-pub const DROP_DIMS: Coord = Coord {row: 2, col: 20};
 pub const NEXT_DIMS: Coord = Coord { row: 3, col: 9 };
 
 fn in_area(row: usize, col: usize, tl: Coord, dims: Coord) -> bool {
@@ -45,14 +44,6 @@ pub fn in_next_disp(row: usize, col: usize) -> bool {
 
 pub fn in_arena(row: usize, col: usize) -> bool {
     in_area(row, col, ARENA_TL, ARENA_DIMS)
-}
-
-pub fn in_score_disp(row: usize, col: usize) -> bool {
-    in_area(row, col, SCORE_DISP_TL, STAT_DIMS)
-}
-
-pub fn in_lines_disp(row: usize, col: usize) -> bool {
-    in_area(row, col, LINES_DISP_TL, STAT_DIMS)
 }
 
 pub const BLOCK_HORIZ_MULT: usize = 2;
@@ -246,7 +237,7 @@ pub fn to_symbol(chr: char) -> Symbol {
     match chr {
         chr @ '0'..='9' => Symbol::Data(chr),
         ' ' => Symbol::Space,
-        chr @ _ => Symbol::Text(chr),
+        chr => Symbol::Text(chr),
     }
 }
 
