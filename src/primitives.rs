@@ -24,8 +24,7 @@ pub static SCREEN_STR: &str = "
    ┃                    ┃   ┃         ┃
    ┃                    ┃   ┗━━━━━━━━━┛
    ┗━━━━━━━━━━━━━━━━━━━━┛              
-                                       
-     inspiration: k-vernooy/tetris     ";
+                                       ";
 pub const NEXT_DISP_TL: Coord = Coord { row: 4, col: 29 };
 pub const SCORE_DISP_TL: Coord = Coord { row: 11, col: 30 };
 pub const LINES_DISP_TL: Coord = Coord { row: 17, col: 30 };

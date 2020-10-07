@@ -306,13 +306,13 @@ impl Game {
         self.screen.top();
 
         mvprintw(9, 9, "Game over!");
-        mvprintw(10, 6, "Try again? (y/n/d)");
+        mvprintw(10, 6, "Try again? (y/n)");
 
         loop {
             match getch() {
                 N_CHAR => return false,
                 Y_CHAR => return true,
-                D_CHAR => {
+                D_CHAR if cfg!(debug_assertions) => {
                     let bbox = self.curr_shape.bounding_box();
                     mvprintw(
                         0,
