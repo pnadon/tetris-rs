@@ -53,7 +53,7 @@ impl Game {
                 self.gen_shape();
                 new_shape = false;
             }
-            if count % self.framerate == 0 {
+            if count % self.framerate() == 0 {
                 if self.rem_drop_height > 0 {
                     if !self.drop_shape() {
                         break;
@@ -107,6 +107,13 @@ impl Game {
         }
 
         self.game_over()
+    }
+
+    fn framerate(&self) -> u32 {
+        self.framerate + match self.is_easy {
+            true => self.framerate / 2,
+            false => 0
+        }
     }
 
     fn rotate(&mut self) {
